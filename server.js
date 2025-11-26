@@ -6,12 +6,50 @@ const app = express();
 const DEFAULT_PORT = 3000;
 const MAX_PORT = DEFAULT_PORT + 50;
 
+// 解析 JSON 请求体（用于代理转发大图片数据）
+app.use(express.json({ limit: '50mb' }));
+
 // 静态文件服务
 app.use(express.static(path.join(__dirname)));
 
 // 默认路由
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// 简单的 API 代理中间件
+app.post('/api/proxy', async (req, res) => {
+    const { targetUrl, method, headers, body } = req.body || {};
+
+    if (!targetUrl) {
+        return res.status(400).json({ error: 'targetUrl is required' });
+    }
+
+    try {
+        const cleanHeaders = { ...(headers || {}) };
+        delete cleanHeaders.host;
+        delete cleanHeaders.Host;
+        delete cleanHeaders['content-length'];
+        delete cleanHeaders['Content-Length'];
+
+        const fetchOptions = {
+            method: method || 'POST',
+            headers: cleanHeaders
+        };
+
+        if (body !== undefined && body !== null && fetchOptions.method !== 'GET') {
+            fetchOptions.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(targetUrl, fetchOptions);
+
+        res.status(response.status);
+        const text = await response.text();
+        res.send(text);
+    } catch (error) {
+        console.error('Proxy Error:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 let server;
@@ -21,13 +59,13 @@ function openBrowser(port) {
 
     let command;
     switch (process.platform) {
-        case 'darwin': // macOS
+        case 'darwin':
             command = `open "${url}"`;
             break;
-        case 'win32': // Windows
+        case 'win32':
             command = `start "" "${url}"`;
             break;
-        default: // Linux
+        default:
             command = `xdg-open "${url}"`;
     }
 

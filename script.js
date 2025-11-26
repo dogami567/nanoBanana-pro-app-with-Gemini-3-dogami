@@ -282,10 +282,10 @@ function renderImagePreview(imageObj) {
     div.className = 'preview-item';
     div.id = `preview-${imageObj.id}`;
     
-    div.innerHTML = `
-        <img src="data:${imageObj.mimeType};base64,${imageObj.base64}" alt="preview">
-        <button class="remove-img-btn" onclick="removeImage('${imageObj.id}')">✕</button>
-    `;
+    div.innerHTML = "`
+        <img src=\"data:${imageObj.mimeType};base64,${imageObj.base64}\" alt=\"preview">
+        <button class=\"remove-img-btn\" onclick=\"removeImage('${imageObj.id}')\">✕</button>
+    `";
     
     DOMElements.imagePreviewGrid.appendChild(div);
     DOMElements.clearAllImagesBtn.style.display = 'block';
@@ -443,13 +443,16 @@ function renderMessage(role, content) {
             const b64 = img.base64 || img.data;
             const mime = img.mimeType || 'image/jpeg';
             if (role === 'model') {
-                html += `
-                <div class="message-image-wrapper">
-                    <img src="data:${mime};base64,${b64}" alt="message image">
-                    <button class="reuse-img-btn" onclick="reuseImage('${b64}', '${mime}')">➕ 引用</button>
-                </div>`;
+                html += "`
+                <div class=\"message-image-wrapper\">
+                    <img src=\"data:${mime};base64,${b64}\" alt=\"message image">
+                    <button class=\"reuse-img-btn\" onclick=\"reuseImage('${b64}', '${mime}')\">➕ 引用</button>
+                </div>
+                `";
             } else {
-                html += `<div class="message-image-wrapper"><img src="data:${mime};base64,${b64}" alt="message image"></div>`;
+                html += "`
+                <div class=\"message-image-wrapper\"><img src=\"data:${mime};base64,${b64}\" alt=\"message image"></div>
+                `";
             }
         });
         html += `</div>`;
@@ -594,12 +597,16 @@ function updateHistoryDisplay() {
     AppState.generationHistory.forEach(item => {
         const div = document.createElement('div');
         div.className = 'history-item';
-        div.innerHTML = `
-            <div class="history-info">
-                <div class="history-prompt">${item.prompt.substring(0, 50)}...</div>
-                <div class="history-meta">${new Date(item.timestamp).toLocaleTimeString()}</div>
+        // 显示标题或部分提示词
+        // 异步加载缩略图逻辑过于复杂，这里仅显示文字
+        div.innerHTML = "`
+            <div class=\"history-info\">
+                <div class=\"history-prompt">${item.prompt.substring(0, 50)}...</div>
+                <div class=\"history-meta">${new Date(item.timestamp).toLocaleTimeString()}</div>
             </div>
-        `;
+        `";
+        // 添加点击事件，例如 viewHistory(item.id)
+        // 需要注意的是，如果图片在 IndexedDB，需要异步获取
         historyList.appendChild(div);
     });
 }
@@ -607,6 +614,9 @@ function updateHistoryDisplay() {
 function clearAllHistory() {
     if (!confirm('确定清空历史？')) return;
     AppState.generationHistory = [];
+    if (typeof ImageDB !== 'undefined') {
+        ImageDB.clear();
+    }
     saveHistoryToStorage();
     updateHistoryDisplay();
 }
