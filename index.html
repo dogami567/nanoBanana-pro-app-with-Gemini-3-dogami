@@ -38,7 +38,7 @@
                     <div class="title-section">
                         <h1>🍌 Nano Banana</h1>
                         <p>基于 Gemini 2.5 Flash Image 的双图合成工具</p>
-                        <small class="paste-hint">💡 支持单图/双图模式 • 可用 Ctrl+V 粘贴图片</small>
+                        <small class="paste-hint">💡 支持单图/多图模式，且可用 Ctrl+V 粘贴图片</small>
                     </div>
                     <button class="sidebar-toggle desktop-toggle" id="desktopToggle" onclick="toggleSidebar()">
                         📜 历史记录
@@ -49,34 +49,23 @@
             <main>
             <!-- 图片上传区域 -->
             <section class="upload-section">
-                <div class="upload-container">
-                    <div class="upload-box" id="leftImageBox">
-                        <div class="upload-area" ondrop="handleDrop(event, 'left')" ondragover="handleDragOver(event)">
-                            <input type="file" id="leftImageInput" accept="image/*" onchange="handleImageUpload(event, 'left')" hidden>
-                            <div class="upload-placeholder">
-                                <span class="upload-icon">📁</span>
-                                <p>拖拽或点击上传左图</p>
-                                <button type="button" onclick="document.getElementById('leftImageInput').click()">选择文件</button>
-                            </div>
-                            <img id="leftImagePreview" class="image-preview" style="display: none;" alt="左图预览">
-                        </div>
-                        <label class="image-label">左图（图案/纹理）</label>
-                        <button class="clear-btn" id="clearLeftBtn" onclick="clearImage('left')" style="display: none;">🗑️ 清除</button>
+                <div class="multi-upload-container">
+                    <!-- 图片预览网格 -->
+                    <div class="image-preview-grid" id="imagePreviewGrid">
+                        <!-- 动态插入的图片将在这里显示 -->
                     </div>
 
-                    <div class="upload-box" id="rightImageBox">
-                        <div class="upload-area" ondrop="handleDrop(event, 'right')" ondragover="handleDragOver(event)">
-                            <input type="file" id="rightImageInput" accept="image/*" onchange="handleImageUpload(event, 'right')" hidden>
-                            <div class="upload-placeholder">
-                                <span class="upload-icon">📁</span>
-                                <p>拖拽或点击上传右图</p>
-                                <button type="button" onclick="document.getElementById('rightImageInput').click()">选择文件</button>
-                            </div>
-                            <img id="rightImagePreview" class="image-preview" style="display: none;" alt="右图预览">
-                        </div>
-                        <label class="image-label">右图（主体/模特）</label>
-                        <button class="clear-btn" id="clearRightBtn" onclick="clearImage('right')" style="display: none;">🗑️ 清除</button>
+                    <!-- 上传按钮区域 -->
+                    <div class="upload-controls">
+                        <input type="file" id="multiImageInput" accept="image/*" multiple hidden>
+                        <button class="upload-btn" onclick="document.getElementById('multiImageInput').click()">
+                            ➕ 添加图片 (最多5张)
+                        </button>
+                        <button class="clear-btn" id="clearAllImagesBtn" onclick="clearAllImages()" style="display: none;">
+                            🗑️ 清空所有
+                        </button>
                     </div>
+                    <p class="upload-hint">已选择: <span id="imageCount">0</span>/5 张</p>
                 </div>
             </section>
 
@@ -126,14 +115,9 @@
 
             <!-- 结果显示区域 -->
             <section class="result-section" id="resultSection" style="display: none;">
-                <h3>✨ 生成结果</h3>
-                <div class="result-container">
-                    <img id="resultImage" class="result-image" alt="生成结果">
-                    <div class="result-actions">
-                        <button class="action-btn" onclick="saveImage()">💾 保存图片</button>
-                        <button class="action-btn" onclick="copyImage()">📋 复制图片</button>
-                        <button class="action-btn" onclick="resetApp()">🔄 重新开始</button>
-                    </div>
+                <h3>🎨 生成结果</h3>
+                <div id="chatStream" class="chat-stream">
+                    <!-- 对话气泡和图片结果将动态追加到这里 -->
                 </div>
             </section>
             </main>
@@ -149,3 +133,4 @@
     <script src="script.js"></script>
 </body>
 </html>
+

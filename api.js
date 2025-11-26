@@ -94,26 +94,20 @@ async function getAvailableModels(apiKey) {
 }
 
 /**
- * 调用Gemini API生成图片
+ * 调用Gemini API生成图片（支持上下文和混合内容）
  * @param {Object} params - 请求参数
  * @param {string} params.apiKey - API密钥
  * @param {string} params.model - 模型名称
- * @param {string} params.prompt - 提示词
- * @param {string} params.leftImageBase64 - 左图Base64数据（可选）
- * @param {string} params.leftImageMimeType - 左图MIME类型（可选）
- * @param {string} params.rightImageBase64 - 右图Base64数据（可选）
- * @param {string} params.rightImageMimeType - 右图MIME类型（可选）
+ * @param {Array} params.history - 历史对话记录
+ * @param {Array} params.newParts - 当前用户输入的parts
  * @param {Function} onProgress - 进度回调函数
- * @returns {Promise<string>} 生成的图片Base64数据
+ * @returns {Promise<Object>} 包含文本和图片数据的对象
  */
 async function generateImageWithGemini({
     apiKey,
     model,
-    prompt,
-    leftImageBase64,
-    leftImageMimeType,
-    rightImageBase64,
-    rightImageMimeType,
+    history,
+    newParts,
     onProgress
 }) {
     // 验证必填参数
@@ -121,45 +115,21 @@ async function generateImageWithGemini({
         throw new Error('无效的API密钥');
     }
     
-    if (!prompt || prompt.trim().length === 0) {
-        throw new Error('提示词不能为空');
-    }
-    
-    // 检查图片数量，支持单图或双图模式
-    const hasLeftImage = leftImageBase64 && leftImageBase64.length > 0;
-    const hasRightImage = rightImageBase64 && rightImageBase64.length > 0;
-    
-    if (!hasLeftImage && !hasRightImage) {
-        throw new Error('请先上传至少一张图片');
+    if (!newParts || newParts.length === 0) {
+        throw new Error('输入内容不能为空');
     }
     
     // 更新进度：准备请求
     if (onProgress) onProgress(10, '准备API请求...');
     
-    // 构建请求数据 - 动态添加图片
-    const parts = [{ text: prompt }];
-    
-    // 添加可用的图片
-    if (hasLeftImage) {
-        parts.push({
-            inline_data: {
-                mime_type: leftImageMimeType,
-                data: leftImageBase64
-            }
-        });
-    }
-    
-    if (hasRightImage) {
-        parts.push({
-            inline_data: {
-                mime_type: rightImageMimeType,
-                data: rightImageBase64
-            }
-        });
-    }
+    // 构建完整的对话内容
+    const contents = [
+        ...history,
+        { role: 'user', parts: newParts }
+    ];
     
     const requestBody = {
-        contents: [{ parts }],
+        contents: contents,
         generationConfig: {
             temperature: 0.8,
             topK: 32,
@@ -221,75 +191,51 @@ async function generateImageWithGemini({
         
         const result = await response.json();
         
-        // 添加调试信息：记录完整的API响应结构
+        // 添加调试信息
         console.log('API响应结构:', JSON.stringify(result, null, 2));
         
-        // 更新进度：提取图片数据
-        if (onProgress) onProgress(80, '提取生成的图片...');
+        // 更新进度：解析结果
+        if (onProgress) onProgress(80, '解析生成结果...');
         
-        // 从响应中提取图片数据 - 支持流式和混合内容
+        // 从响应中提取混合内容
         if (!result.candidates || result.candidates.length === 0) {
             throw new Error('API未返回任何结果');
         }
         
-        // 遍历所有候选结果查找图片数据
-        let imageData = null;
-        let allTextContent = [];
+        const candidate = result.candidates[0];
+        if (!candidate.content || !candidate.content.parts) {
+            throw new Error('API返回了空内容');
+        }
         
-        for (const candidate of result.candidates) {
-            if (!candidate.content || !candidate.content.parts) {
-                continue;
+        // 解析所有parts
+        const responseParts = candidate.content.parts;
+        let textContent = '';
+        const images = [];
+        
+        for (const part of responseParts) {
+            if (part.text) {
+                textContent += part.text;
             }
-            
-            for (const part of candidate.content.parts) {
-                // 调试：记录每个part的内容
-                console.log('Part内容:', part);
-                
-                // 收集所有文字内容
-                if (part.text !== undefined) {
-                    allTextContent.push(part.text);
-                    console.log('发现文字内容:', JSON.stringify(part.text));
-                }
-                
-                // 查找图片数据（优先获取第一个找到的图片）
-                if (!imageData && part.inlineData && part.inlineData.data) {
-                    imageData = part.inlineData.data;
-                    console.log('找到图片数据，MIME类型:', part.inlineData.mimeType);
-                }
-            }
-            
-            // 如果已经找到图片，可以继续收集文字但不需要再找图片
-            if (imageData) {
-                break;
+            if (part.inlineData) {
+                images.push({
+                    mimeType: part.inlineData.mimeType,
+                    data: part.inlineData.data
+                });
             }
         }
         
-        if (!imageData) {
-            // 提供详细的错误信息，包含API的实际回复
-            if (allTextContent.length > 0) {
-                const fullText = allTextContent.join(' ').trim();
-                
-                // 检查是否是空内容或只包含空白字符
-                if (!fullText || fullText.length === 0) {
-                    throw new Error('API返回了空的文字内容，未生成图片。请尝试:\n1. 确保提示词明确要求生成或编辑图片\n2. 检查输入图片是否清晰有效\n3. 尝试更具体的图片生成指令');
-                }
-                
-                // 显示实际内容，包括特殊字符的可见形式
-                const displayText = fullText.replace(/\s/g, '·').substring(0, 200);
-                throw new Error(`API返回了文字内容而非图片。这可能是因为:\n1. 提示词需要明确要求生成图片\n2. 输入图片无法处理\n3. API临时无法生成图片\n\nAPI回复内容: "${displayText}${fullText.length > 200 ? '...' : ''}"\n(·代表空格/换行符)`);
-            }
-            throw new Error('API未生成任何内容，请检查提示词和输入图片');
-        }
-        
-        // 记录混合内容用于调试
-        if (allTextContent.length > 0) {
-            console.log('API返回的文字内容:', allTextContent.join('\n'));
+        // 检查是否为空响应
+        if (!textContent && images.length === 0) {
+             throw new Error('API生成的内容为空');
         }
         
         // 更新进度：完成
-        if (onProgress) onProgress(100, '图片生成完成！');
+        if (onProgress) onProgress(100, '生成完成！');
         
-        return imageData;
+        return {
+            text: textContent,
+            images: images
+        };
         
     } catch (error) {
         if (error.name === 'AbortError') {
