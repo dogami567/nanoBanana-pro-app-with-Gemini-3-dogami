@@ -19,13 +19,13 @@ const AppState = {
 // DOM元素引用
 const DOMElements = {
     baseUrlInput: null,
-    // ... (rest of the elements)
     multiImageInput: null,
     imagePreviewGrid: null,
     imageCount: null,
     clearAllImagesBtn: null,
     apiKeyInput: null,
-    modelSelect: null,
+    modelInput: null,
+    modelList: null,
     promptInput: null,
     generateBtn: null,
     progressSection: null,
@@ -51,7 +51,8 @@ function initializeApp() {
     DOMElements.clearAllImagesBtn = document.getElementById('clearAllImagesBtn');
     
     DOMElements.apiKeyInput = document.getElementById('apiKey');
-    DOMElements.modelSelect = document.getElementById('modelSelect');
+    DOMElements.modelInput = document.getElementById('modelInput');
+    DOMElements.modelList = document.getElementById('modelList');
     DOMElements.promptInput = document.getElementById('promptInput');
     DOMElements.generateBtn = document.getElementById('generateBtn');
     
@@ -87,16 +88,32 @@ function initializeApp() {
  */
 function bindEventListeners() {
     // Base URL 输入事件
-    DOMElements.baseUrlInput.addEventListener('input', debounce(handleBaseUrlChange, 300));
+    if (DOMElements.baseUrlInput) {
+        DOMElements.baseUrlInput.addEventListener('input', debounce(handleBaseUrlChange, 300));
+    }
 
     // API密钥输入事件
-    DOMElements.apiKeyInput.addEventListener('input', debounce(handleApiKeyChange, 300));
+    if (DOMElements.apiKeyInput) {
+        DOMElements.apiKeyInput.addEventListener('input', debounce(handleApiKeyChange, 300));
+    }
     
-    // ... (rest of bindings)
-    DOMElements.modelSelect.addEventListener('change', handleModelChange);
-    DOMElements.promptInput.addEventListener('input', debounce(updateGenerateButtonState, 300));
-    DOMElements.multiImageInput.addEventListener('change', handleMultiImageUpload);
+    // 模型输入事件
+    if (DOMElements.modelInput) {
+        DOMElements.modelInput.addEventListener('input', handleModelChange);
+        DOMElements.modelInput.addEventListener('change', handleModelChange);
+    }
+    
+    // Prompt输入事件
+    if (DOMElements.promptInput) {
+        DOMElements.promptInput.addEventListener('input', debounce(updateGenerateButtonState, 300));
+    }
+    
+    // 多图上传事件
+    if (DOMElements.multiImageInput) {
+        DOMElements.multiImageInput.addEventListener('change', handleMultiImageUpload);
+    }
 
+    // 阻止全局拖拽事件
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         document.addEventListener(eventName, preventDefaults, false);
     });
@@ -115,7 +132,6 @@ function bindEventListeners() {
  */
 function handleBaseUrlChange() {
     let url = DOMElements.baseUrlInput.value.trim();
-    // 移除末尾斜杠
     if (url.endsWith('/')) {
         url = url.slice(0, -1);
     }
@@ -123,6 +139,14 @@ function handleBaseUrlChange() {
     if (url) {
         localStorage.setItem('gemini-api-base-url', url);
     }
+}
+
+/**
+ * 处理模型选择变化
+ */
+function handleModelChange() {
+    AppState.selectedModel = DOMElements.modelInput.value;
+    updateGenerateButtonState();
 }
 
 /**
@@ -141,16 +165,15 @@ function handleApiKeyChange() {
  */
 function restoreConfigFromStorage() {
     const savedBaseUrl = localStorage.getItem('gemini-api-base-url');
-    if (savedBaseUrl) {
+    if (savedBaseUrl && DOMElements.baseUrlInput) {
         DOMElements.baseUrlInput.value = savedBaseUrl;
         AppState.baseUrl = savedBaseUrl;
-    } else {
-        // 默认值
+    } else if (DOMElements.baseUrlInput) {
         DOMElements.baseUrlInput.value = AppState.baseUrl;
     }
 
     const savedApiKey = localStorage.getItem('gemini-api-key');
-    if (savedApiKey) {
+    if (savedApiKey && DOMElements.apiKeyInput) {
         DOMElements.apiKeyInput.value = savedApiKey;
         AppState.apiKey = savedApiKey;
     }
@@ -169,25 +192,25 @@ async function refreshModels() {
     const originalText = refreshBtn.textContent;
     
     try {
-        refreshBtn.textContent = '🔄 获取中...';
+        refreshBtn.textContent = '🔄';
         refreshBtn.disabled = true;
         
         // 传入 baseUrl
         const models = await getAvailableModels(AppState.apiKey, AppState.baseUrl);
         
-        DOMElements.modelSelect.innerHTML = '';
-        models.forEach(model => {
-            const option = document.createElement('option');
-            option.value = model;
-            option.textContent = model;
-            DOMElements.modelSelect.appendChild(option);
-        });
+        // 清空并重建 datalist
+        if (DOMElements.modelList) {
+            DOMElements.modelList.innerHTML = '';
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                DOMElements.modelList.appendChild(option);
+            });
+        }
         
-        if (models.includes(AppState.selectedModel)) {
-            DOMElements.modelSelect.value = AppState.selectedModel;
-        } else {
-            AppState.selectedModel = models[0];
-            DOMElements.modelSelect.value = models[0];
+        if (DOMElements.modelInput && !DOMElements.modelInput.value && models.length > 0) {
+             DOMElements.modelInput.value = models[0];
+             AppState.selectedModel = models[0];
         }
         
         showNotification(`成功获取${models.length}个可用模型`, 'success');
@@ -198,6 +221,134 @@ async function refreshModels() {
     } finally {
         refreshBtn.textContent = originalText;
         refreshBtn.disabled = false;
+    }
+}
+
+/**
+ * 处理多图上传
+ */
+async function handleMultiImageUpload(event) {
+    const files = Array.from(event.target.files);
+    if (!files.length) return;
+
+    await processFiles(files);
+    DOMElements.multiImageInput.value = '';
+}
+
+/**
+ * 处理文件数组
+ */
+async function processFiles(files) {
+    let addedCount = 0;
+    
+    for (const file of files) {
+        if (AppState.currentImages.length >= 5) {
+            showNotification('最多只能上传5张图片', 'warning');
+            break;
+        }
+        
+        if (!validateImageFile(file)) continue;
+        
+        try {
+            const base64Data = await fileToBase64(file);
+            const imageObj = {
+                id: Date.now() + Math.random().toString(36).substr(2, 9),
+                file: file,
+                base64: base64Data,
+                mimeType: getFileMimeType(file)
+            };
+            
+            AppState.currentImages.push(imageObj);
+            renderImagePreview(imageObj);
+            addedCount++;
+        } catch (error) {
+            console.error('图片处理失败:', error);
+            showNotification(`图片 ${file.name} 处理失败`, 'error');
+        }
+    }
+    
+    if (addedCount > 0) {
+        updateImageCount();
+        updateGenerateButtonState();
+        showNotification(`成功添加 ${addedCount} 张图片`, 'success');
+    }
+}
+
+/**
+ * 渲染单张图片预览
+ */
+function renderImagePreview(imageObj) {
+    const div = document.createElement('div');
+    div.className = 'preview-item';
+    div.id = `preview-${imageObj.id}`;
+    
+    div.innerHTML = `
+        <img src="data:${imageObj.mimeType};base64,${imageObj.base64}" alt="preview">
+        <button class="remove-img-btn" onclick="removeImage('${imageObj.id}')">✕</button>
+    `;
+    
+    DOMElements.imagePreviewGrid.appendChild(div);
+    DOMElements.clearAllImagesBtn.style.display = 'block';
+}
+
+/**
+ * 移除单张图片
+ */
+function removeImage(id) {
+    AppState.currentImages = AppState.currentImages.filter(img => img.id !== id);
+    const el = document.getElementById(`preview-${id}`);
+    if (el) el.remove();
+    
+    updateImageCount();
+    updateGenerateButtonState();
+    
+    if (AppState.currentImages.length === 0) {
+        DOMElements.clearAllImagesBtn.style.display = 'none';
+    }
+}
+
+/**
+ * 清空所有图片
+ */
+function clearAllImages() {
+    AppState.currentImages = [];
+    DOMElements.imagePreviewGrid.innerHTML = '';
+    DOMElements.clearAllImagesBtn.style.display = 'none';
+    updateImageCount();
+    updateGenerateButtonState();
+    showNotification('所有图片已清空', 'info');
+}
+
+/**
+ * 更新图片计数显示
+ */
+function updateImageCount() {
+    DOMElements.imageCount.textContent = AppState.currentImages.length;
+}
+
+/**
+ * 更新生成按钮状态
+ */
+function updateGenerateButtonState() {
+    const hasApiKey = AppState.apiKey && AppState.apiKey.length > 0;
+    const hasPrompt = DOMElements.promptInput.value.trim().length > 0;
+    const isNotGenerating = !AppState.isGenerating;
+    
+    const canGenerate = hasApiKey && hasPrompt && isNotGenerating;
+    
+    if (DOMElements.generateBtn) {
+        DOMElements.generateBtn.disabled = !canGenerate;
+        const imageCount = AppState.currentImages.length;
+        
+        if (!hasApiKey) {
+            DOMElements.generateBtn.textContent = '🔑 请输入API密钥';
+        } else if (!hasPrompt) {
+            DOMElements.generateBtn.textContent = '✍️ 请输入提示词';
+        } else if (AppState.isGenerating) {
+            DOMElements.generateBtn.textContent = '⏳ 生成中...';
+        } else {
+            DOMElements.generateBtn.textContent = `🚀 发送消息 (${imageCount}图)`;
+        }
     }
 }
 
@@ -248,7 +399,7 @@ async function generateImage() {
 
         renderMessage('model', result);
         
-        saveToHistory({
+        await saveToHistory({
             prompt: prompt,
             result: result,
             imageCount: AppState.currentImages.length,
@@ -271,10 +422,9 @@ async function generateImage() {
         }, 100);
     }
 }
+
 /**
  * 渲染聊天消息
- * @param {string} role - 'user' | 'model'
- * @param {Object} content - { text, images: [] }
  */
 function renderMessage(role, content) {
     const div = document.createElement('div');
@@ -282,34 +432,32 @@ function renderMessage(role, content) {
     
     let html = '';
     
-    // 渲染文本
     if (content.text) {
-        // 简单处理换行
         const formattedText = content.text.replace(/\n/g, '<br>');
         html += `<div class="message-text">${formattedText}</div>`;
     }
     
-    // 渲染图片
     if (content.images && content.images.length > 0) {
         html += `<div class="message-images">`;
         content.images.forEach(img => {
-            // img 可能是 { base64, mimeType } 或 { data, mimeType } (API返回)
             const b64 = img.base64 || img.data;
-            const mime = img.mimeType || 'image/jpeg'; // 默认
-            html += `<img src="data:${mime};base64,${b64}" alt="message image">`;
-            
-            // 如果是 AI 生成的图，加个保存按钮？
+            const mime = img.mimeType || 'image/jpeg';
             if (role === 'model') {
-                // 简化版，暂不加复杂按钮，点击图片可以预览或保存
+                html += `
+                <div class="message-image-wrapper">
+                    <img src="data:${mime};base64,${b64}" alt="message image">
+                    <button class="reuse-img-btn" onclick="reuseImage('${b64}', '${mime}')">➕ 引用</button>
+                </div>`;
+            } else {
+                html += `<div class="message-image-wrapper"><img src="data:${mime};base64,${b64}" alt="message image"></div>`;
             }
         });
         html += `</div>`;
     }
-    
+
     div.innerHTML = html;
     DOMElements.chatStream.appendChild(div);
 }
-
 
 /**
  * 更新进度显示
@@ -325,8 +473,6 @@ function updateProgress(percentage, message) {
 async function handlePasteEvent(event) {
     const activeElement = document.activeElement;
     if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
-        // 如果在输入框，且粘贴的是文本，让默认行为发生
-        // 如果粘贴的是图片，我们拦截
         const items = event.clipboardData?.items;
         let hasImage = false;
         for (let i = 0; i < items.length; i++) {
@@ -357,7 +503,6 @@ async function handlePasteEvent(event) {
  * 处理键盘快捷键
  */
 function handleKeyboardShortcuts(event) {
-    // Enter 发送 (Ctrl+Enter 换行) - 这里可以优化体验
     if (event.key === 'Enter' && !event.ctrlKey && !event.shiftKey) {
         if (document.activeElement === DOMElements.promptInput) {
             event.preventDefault();
@@ -369,23 +514,38 @@ function handleKeyboardShortcuts(event) {
 }
 
 /**
- * 历史记录管理功能 (仅存档)
+ * 历史记录管理功能
  */
-function saveToHistory(record) {
+async function saveToHistory(record) {
+    const historyId = Date.now().toString(36);
+    let imageId = null;
+
+    const firstImage = record.result.images && record.result.images.length > 0
+        ? record.result.images[0]
+        : null;
+
+    if (firstImage && typeof ImageDB !== 'undefined') {
+        imageId = `img_${historyId}_${Math.random().toString(36).substr(2, 6)}`;
+        const base64Data = firstImage.base64 || firstImage.data;
+        try {
+            await ImageDB.save(imageId, base64Data);
+        } catch (e) {
+            console.error('保存历史图片到 IndexedDB 失败:', e);
+            imageId = null;
+        }
+    }
+
     const historyItem = {
-        id: Date.now().toString(36),
+        id: historyId,
         timestamp: new Date().toISOString(),
         prompt: record.prompt,
         resultText: record.result.text,
-        // 只存第一张生成的图作为预览，避免localStorage爆炸
-        thumbnail: record.result.images && record.result.images.length > 0 
-            ? record.result.images[0].data 
-            : null,
+        imageId: imageId,
         mode: `${record.imageCount}图模式`
     };
     
     AppState.generationHistory.unshift(historyItem);
-    if (AppState.generationHistory.length > 20) { // 减少数量防止 storage 满
+    if (AppState.generationHistory.length > 20) {
         AppState.generationHistory = AppState.generationHistory.slice(0, 20);
     }
     
@@ -410,7 +570,6 @@ function saveHistoryToStorage() {
         localStorage.setItem('nano-banana-history', JSON.stringify(AppState.generationHistory));
     } catch (error) {
         console.error('保存历史记录失败:', error);
-        // 如果配额满了，清空旧的
         if (error.name === 'QuotaExceededError') {
             AppState.generationHistory = [];
             localStorage.removeItem('nano-banana-history');
@@ -441,7 +600,6 @@ function updateHistoryDisplay() {
                 <div class="history-meta">${new Date(item.timestamp).toLocaleTimeString()}</div>
             </div>
         `;
-        // 暂不实现点击回放，因为上下文比较复杂
         historyList.appendChild(div);
     });
 }
@@ -465,6 +623,27 @@ function toggleSidebar() {
         sidebar.classList.remove('open');
         mainContainer.classList.remove('sidebar-open');
     }
+}
+
+/**
+ * 将模型生成的图片加入当前参考图列表
+ */
+function reuseImage(base64, mimeType) {
+    const imageObj = {
+        id: Date.now() + Math.random().toString(36).substr(2, 9),
+        file: null,
+        base64: base64,
+        mimeType: mimeType || 'image/png'
+    };
+
+    AppState.currentImages.push(imageObj);
+    renderImagePreview(imageObj);
+    updateImageCount();
+    updateGenerateButtonState();
+    if (DOMElements.clearAllImagesBtn) {
+        DOMElements.clearAllImagesBtn.style.display = 'block';
+    }
+    showNotification('已将图片添加到参考列表', 'success');
 }
 
 // 页面加载完成后初始化应用

@@ -520,6 +520,31 @@ select:focus {
     margin-top: 10px;
 }
 
+/* 模型图片引用按钮 */
+.message-image-wrapper {
+    position: relative;
+    display: inline-block;
+    margin-top: 10px;
+}
+
+.reuse-img-btn {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: var(--accent);
+    color: var(--surface);
+    border: var(--border-width) solid var(--border);
+    padding: 2px 8px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    box-shadow: 3px 3px 0 var(--border);
+}
+
+.reuse-img-btn:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 var(--border);
+}
+
 /* 结果区域 */
 .result-section {
     margin-top: 1rem;

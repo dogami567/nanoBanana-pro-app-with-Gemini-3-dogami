@@ -84,13 +84,18 @@
                     </div>
                     
                     <div class="config-row">
-                        <label for="modelSelect">模型:</label>
-                        <select id="modelSelect" class="config-select">
-                            <option value="nano-banana-2-4k">nano-banana-2-4k</option>
-                            <option value="gemini-2.5-flash-image-preview">gemini-2.5-flash-image-preview</option>
-                            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-                        </select>
-                        <button id="refreshModelsBtn" class="refresh-btn" onclick="refreshModels()">🔄 刷新</button>
+                        <label for="modelInput">模型:</label>
+                        <div class="model-input-group" style="display: flex; gap: 5px; flex: 1;">
+                            <input type="text" id="modelInput" list="modelList" placeholder="输入或选择模型" class="config-input" value="nano-banana-2-4k">
+                            <datalist id="modelList">
+                                <option value="nano-banana-2-4k">
+                                <option value="gemini-2.5-flash-image-preview">
+                                <option value="gemini-2.0-flash">
+                                <option value="gemini-1.5-flash">
+                                <option value="gemini-1.5-pro">
+                            </datalist>
+                            <button id="refreshModelsBtn" class="refresh-btn" onclick="refreshModels()" title="获取可用模型列表">🔄</button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -136,7 +141,7 @@
 
     <script src="utils.js"></script>
     <script src="api.js"></script>
+    <script src="db.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
-
