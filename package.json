@@ -1,7 +1,7 @@
 {
   "name": "nano-banana-app",
   "version": "0.0.3",
-  "description": "基于 Gemini 2.5 Flash Image 的双图合成工具",
+  "description": "基于 nanobanana-pro 的 4K 多图合成与语义增强工具",
   "main": "electron-main.js",
   "homepage": "./",
   "scripts": {
@@ -13,7 +13,7 @@
     "build-mac": "electron-builder --mac",
     "dist": "npm run build"
   },
-  "keywords": ["gemini", "image", "ai", "generator", "electron"],
+  "keywords": ["gemini", "image", "ai", "generator", "electron", "nanobanana-pro", "4k"],
   "author": "Claude Code",
   "license": "MIT",
   "dependencies": {
@@ -33,7 +33,7 @@
       "electron-main.js",
       "index.html",
       "styles.css",
-      "script.js", 
+      "script.js",
       "api.js",
       "utils.js",
       "CLAUDE.md",
@@ -66,3 +66,4 @@
     }
   }
 }
+
