@@ -134,8 +134,8 @@ header {
     background: var(--surface);
     color: var(--border);
     border: var(--border-width) solid var(--border);
-    width: 36px;
-    height: 36px;
+    width: 52px;
+    height: 52px;
     cursor: pointer;
     font-weight: bold;
     box-shadow: 3px 3px 0 var(--border);
@@ -629,4 +629,3 @@ footer p {
     align-items: flex-start;
     margin-top: 10px;
 }
-
