@@ -6,7 +6,7 @@
 // 应用状态管理
 const AppState = {
     apiKey: '',
-    selectedModel: 'gemini-2.5-flash-image-preview',
+    selectedModel: 'nano-banana-2-4k',
     isGenerating: false,
     isSidebarOpen: false,
     generationHistory: [], // 仅仅用于本地存储历史查看，不用于对话上下文（如果需要上下文，单独维护）

@@ -1,15 +1,16 @@
 /**
- * API调用模块
- * 处理与Gemini API的所有交互
+ * API 调用模块
+ * 负责与 Gemini / Nano Banana 图像服务交互
  */
 
-// API配置常量
+// API 配置常量
 const API_CONFIG = {
-    BASE_URL: 'https://generativelanguage.googleapis.com/v1beta',
+    GEMINI_BASE_URL: 'https://api.linkapi.org/v1beta',
     MODELS_ENDPOINT: '/models',
-    GENERATE_CONTENT_SUFFIX: ':generateContent',
-    TIMEOUT: 120000, // 2分钟超时
+    GEMINI_GENERATE_SUFFIX: ':generateContent',
+    TIMEOUT: 120000, // 2 分钟超时
     DEFAULT_MODELS: [
+        'nano-banana-2-4k',
         'gemini-2.5-flash-image-preview',
         'gemini-2.0-flash',
         'gemini-1.5-flash',
@@ -18,39 +19,38 @@ const API_CONFIG = {
 };
 
 /**
- * 验证API密钥格式
- * @param {string} apiKey - API密钥
- * @returns {boolean} 是否为有效格式
+ * 验证 API 密钥格式
+ * @param {string} apiKey
+ * @returns {boolean}
  */
 function validateApiKey(apiKey) {
-    if (!apiKey || typeof apiKey !== 'string') {
-        return false;
-    }
-    
-    // Gemini API密钥通常以AIza开头，长度约39字符
-    const apiKeyPattern = /^AIza[a-zA-Z0-9_-]{35}$/;
-    return apiKeyPattern.test(apiKey);
+    if (!apiKey || typeof apiKey !== 'string') return false;
+    // 支持 Google 官方 key (AIza...) 及第三方 key (sk-...)
+    return apiKey.length > 10;
 }
 
 /**
  * 获取可用模型列表
- * @param {string} apiKey - API密钥
- * @returns {Promise<Array<string>>} 模型列表
+ * @param {string} apiKey
+ * @returns {Promise<string[]>}
  */
 async function getAvailableModels(apiKey) {
     if (!validateApiKey(apiKey)) {
         throw new Error('无效的API密钥格式');
     }
-    
+
     try {
-        const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.MODELS_ENDPOINT}?key=${apiKey}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            signal: AbortSignal.timeout(10000) // 10秒超时
-        });
-        
+        const response = await fetch(
+            `${API_CONFIG.GEMINI_BASE_URL}${API_CONFIG.MODELS_ENDPOINT}?key=${encodeURIComponent(apiKey)}`,
+            {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                signal: AbortSignal.timeout(10000)
+            }
+        );
+
         if (!response.ok) {
             if (response.status === 401) {
                 throw new Error('API密钥无效');
@@ -60,76 +60,258 @@ async function getAvailableModels(apiKey) {
                 throw new Error(`获取模型列表失败: ${response.status}`);
             }
         }
-        
+
         const data = await response.json();
-        
-        if (data.models && Array.isArray(data.models)) {
-            // 过滤出支持图像生成的模型
+        if (Array.isArray(data.models)) {
             const imageModels = data.models
-                .filter(model => 
-                    model.name && 
-                    (model.name.includes('flash') || model.name.includes('image'))
-                )
+                .filter(model => model.name && (model.name.includes('flash') || model.name.includes('image')))
                 .map(model => model.name.replace('models/', ''));
-            
+
             return imageModels.length > 0 ? imageModels : API_CONFIG.DEFAULT_MODELS;
         }
-        
+
         return API_CONFIG.DEFAULT_MODELS;
-        
     } catch (error) {
         console.error('获取模型列表失败:', error);
-        
+
         if (error.name === 'AbortError') {
             throw new Error('请求超时，请检查网络连接');
         }
-        
-        // 如果是网络错误，返回默认模型列表
-        if (error.message.includes('fetch')) {
+
+        // 网络错误时退回默认模型列表
+        if (error.message && error.message.includes('fetch')) {
             return API_CONFIG.DEFAULT_MODELS;
         }
-        
+
         throw error;
     }
 }
 
+// ---------- Nano Banana (OpenAI Chat 格式) 辅助函数 ----------
+
 /**
- * 调用Gemini API生成图片（支持上下文和混合内容）
- * @param {Object} params - 请求参数
- * @param {string} params.apiKey - API密钥
- * @param {string} params.model - 模型名称
- * @param {Array} params.history - 历史对话记录
- * @param {Array} params.newParts - 当前用户输入的parts
- * @param {Function} onProgress - 进度回调函数
- * @returns {Promise<Object>} 包含文本和图片数据的对象
+ * 将 Gemini 的 parts 转为 OpenAI Chat 的 content 数组
+ * @param {Array} newParts
+ * @returns {{contentParts: Array, prompt: string}}
+ */
+function buildOpenAIContentFromGeminiParts(newParts) {
+    const contentParts = [];
+    let prompt = '';
+
+    for (const part of newParts) {
+        if (part.text) {
+            contentParts.push({
+                type: 'text',
+                text: part.text
+            });
+            if (!prompt) {
+                prompt = part.text;
+            }
+        } else if (part.inlineData && part.inlineData.data) {
+            const mimeType = part.inlineData.mimeType || 'image/png';
+            const base64Data = part.inlineData.data;
+            const dataUrl = `data:${mimeType};base64,${base64Data}`;
+
+            contentParts.push({
+                type: 'image_url',
+                image_url: {
+                    url: dataUrl
+                }
+            });
+        }
+    }
+
+    if (!prompt) {
+        prompt = 'A creative image';
+        contentParts.unshift({
+            type: 'text',
+            text: prompt
+        });
+    }
+
+    return { contentParts, prompt };
+}
+
+/**
+ * 从文本中提取图片 URL（支持 Markdown 和裸 URL）
+ * @param {string} text
+ * @returns {string|null}
+ */
+function extractImageUrlFromText(text) {
+    if (!text) return null;
+
+    const markdownMatch = text.match(/!\[[^\]]*]\((https?:\/\/[^\s)]+)\)/);
+    if (markdownMatch && markdownMatch[1]) {
+        return markdownMatch[1];
+    }
+
+    const urlMatch = text.match(/https?:\/\/[^\s)]+/);
+    return urlMatch ? urlMatch[0] : null;
+}
+
+/**
+ * 将 Blob 转为 base64（data URL）
+ * @param {Blob} blob
+ * @returns {Promise<string>}
+ */
+function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+/**
+ * 下载远程图片并转为 { mimeType, data(base64) }
+ * @param {string} url
+ * @returns {Promise<{mimeType: string, data: string}>}
+ */
+async function fetchImageAsBase64(url) {
+    const res = await fetch(url);
+    if (!res.ok) {
+        throw new Error(`下载图片失败: ${res.status} ${res.statusText}`);
+    }
+
+    const blob = await res.blob();
+    const dataUrl = await blobToBase64(blob);
+
+    const commaIndex = typeof dataUrl === 'string' ? dataUrl.indexOf(',') : -1;
+    const base64 = commaIndex !== -1 ? dataUrl.slice(commaIndex + 1) : dataUrl;
+    const mimeType = blob.type || 'image/png';
+
+    return { mimeType, data: base64 };
+}
+
+/**
+ * 调用 Nano Banana (通过 linkapi chat/completions) 生成图片 URL 并下载为 base64
+ * @param {Object} params
+ * @param {string} params.apiKey
+ * @param {Array} params.newParts
+ * @param {Function} params.onProgress
+ * @returns {Promise<{text: string, images: Array}>}
+ */
+async function callNanoBananaChatCompletions({ apiKey, newParts, onProgress }) {
+    if (onProgress) onProgress(10, '正在连接 Nano Banana 绘图服务...');
+
+    const { contentParts, prompt } = buildOpenAIContentFromGeminiParts(newParts);
+
+    const requestBody = {
+        model: 'nano-banana-2-4k',
+        messages: [
+            {
+                role: 'user',
+                content: contentParts
+            }
+        ]
+    };
+
+    if (onProgress) onProgress(30, '正在生成图片...');
+
+    const response = await fetch('https://api.linkapi.org/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Nano Banana API Error: ${response.status} - ${errText}`);
+    }
+
+    const data = await response.json();
+
+    if (onProgress) onProgress(60, '解析生成结果文本...');
+
+    if (!data.choices || data.choices.length === 0 || !data.choices[0].message) {
+        throw new Error('API未返回有效结果');
+    }
+
+    const rawContent = data.choices[0].message.content;
+    const textContent =
+        typeof rawContent === 'string'
+            ? rawContent
+            : Array.isArray(rawContent)
+                ? rawContent.map(c => (typeof c === 'string' ? c : c.text || '')).join('\n')
+                : '';
+
+    if (!textContent) {
+        throw new Error('API返回内容为空');
+    }
+
+    const imageUrl = extractImageUrlFromText(textContent);
+    const images = [];
+
+    if (imageUrl) {
+        if (onProgress) onProgress(80, '正在下载生成图片...');
+        try {
+            const image = await fetchImageAsBase64(imageUrl);
+            images.push(image);
+        } catch (downloadError) {
+            console.error('下载图片失败:', downloadError);
+        }
+    }
+
+    if (onProgress) onProgress(100, '生成完成');
+
+    return {
+        text: textContent,
+        images
+    };
+}
+
+// ---------- Gemini 主流程 ----------
+
+/**
+ * 调用 Gemini / Nano Banana 生成图片（支持上下文和混合内容）
+ * @param {Object} params
+ * @param {string} params.apiKey
+ * @param {string} params.model
+ * @param {Array} params.history
+ * @param {Array} params.newParts
+ * @param {Function} params.onProgress
+ * @returns {Promise<{text: string, images: Array}>}
  */
 async function generateImageWithGemini({
     apiKey,
     model,
-    history,
-    newParts,
+    history = [],
+    newParts = [],
     onProgress
 }) {
-    // 验证必填参数
     if (!validateApiKey(apiKey)) {
         throw new Error('无效的API密钥');
     }
-    
+
     if (!newParts || newParts.length === 0) {
         throw new Error('输入内容不能为空');
     }
-    
-    // 更新进度：准备请求
+
+    // 特殊模型：走 OpenAI Chat Completions 协议
+    if (model === 'nano-banana-2-4k') {
+        try {
+            return await callNanoBananaChatCompletions({ apiKey, newParts, onProgress });
+        } catch (error) {
+            console.error('Nano Banana 调用失败:', error);
+            throw error;
+        }
+    }
+
+    // --- 标准处理：Gemini 协议 ---
+
     if (onProgress) onProgress(10, '准备API请求...');
-    
-    // 构建完整的对话内容
+
     const contents = [
-        ...history,
+        ...(Array.isArray(history) ? history : []),
         { role: 'user', parts: newParts }
     ];
-    
+
     const requestBody = {
-        contents: contents,
+        contents,
         generationConfig: {
             temperature: 0.8,
             topK: 32,
@@ -137,16 +319,15 @@ async function generateImageWithGemini({
             maxOutputTokens: 4096
         }
     };
-    
-    // 更新进度：发送请求
+
     if (onProgress) onProgress(20, '发送请求到Gemini API...');
-    
+
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
-        
+
         const response = await fetch(
-            `${API_CONFIG.BASE_URL}/models/${model}${API_CONFIG.GENERATE_CONTENT_SUFFIX}`,
+            `${API_CONFIG.GEMINI_BASE_URL}/models/${model}${API_CONFIG.GEMINI_GENERATE_SUFFIX}`,
             {
                 method: 'POST',
                 headers: {
@@ -157,61 +338,56 @@ async function generateImageWithGemini({
                 signal: controller.signal
             }
         );
-        
+
         clearTimeout(timeoutId);
-        
-        // 更新进度：处理响应
+
         if (onProgress) onProgress(60, '处理API响应...');
-        
+
         if (!response.ok) {
             const errorText = await response.text();
             let errorMessage = `API请求失败 (${response.status})`;
-            
+
             try {
                 const errorData = JSON.parse(errorText);
                 if (errorData.error && errorData.error.message) {
                     errorMessage = errorData.error.message;
                 }
-            } catch (e) {
-                // 使用默认错误消息
+            } catch (_) {
+                // 忽略 JSON 解析错误，使用默认错误信息
             }
-            
+
             if (response.status === 401) {
                 errorMessage = 'API密钥无效或已过期';
             } else if (response.status === 403) {
-                errorMessage = 'API访问被拒绝，请检查配额';
+                errorMessage = 'API访问被拒绝，请检查配置';
             } else if (response.status === 429) {
                 errorMessage = '请求过于频繁，请稍后再试';
             } else if (response.status >= 500) {
-                errorMessage = 'Gemini API服务暂时不可用';
+                errorMessage = 'Gemini API 服务暂时不可用';
             }
-            
+
             throw new Error(errorMessage);
         }
-        
+
         const result = await response.json();
-        
-        // 添加调试信息
-        console.log('API响应结构:', JSON.stringify(result, null, 2));
-        
-        // 更新进度：解析结果
+
+        console.log('Gemini API 响应结构:', JSON.stringify(result, null, 2));
+
         if (onProgress) onProgress(80, '解析生成结果...');
-        
-        // 从响应中提取混合内容
+
         if (!result.candidates || result.candidates.length === 0) {
             throw new Error('API未返回任何结果');
         }
-        
+
         const candidate = result.candidates[0];
         if (!candidate.content || !candidate.content.parts) {
             throw new Error('API返回了空内容');
         }
-        
-        // 解析所有parts
+
         const responseParts = candidate.content.parts;
         let textContent = '';
         const images = [];
-        
+
         for (const part of responseParts) {
             if (part.text) {
                 textContent += part.text;
@@ -223,42 +399,39 @@ async function generateImageWithGemini({
                 });
             }
         }
-        
-        // 检查是否为空响应
+
         if (!textContent && images.length === 0) {
-             throw new Error('API生成的内容为空');
+            throw new Error('API生成的内容为空');
         }
-        
-        // 更新进度：完成
-        if (onProgress) onProgress(100, '生成完成！');
-        
+
+        if (onProgress) onProgress(100, '生成完成');
+
         return {
             text: textContent,
-            images: images
+            images
         };
-        
     } catch (error) {
         if (error.name === 'AbortError') {
             throw new Error('请求超时，生成时间过长，请稍后重试');
         }
-        
-        console.error('API调用失败:', error);
+
+        console.error('Gemini API 调用失败:', error);
         throw error;
     }
 }
 
 /**
- * 测试API连接
- * @param {string} apiKey - API密钥
- * @param {string} model - 模型名称
- * @returns {Promise<boolean>} 连接是否成功
+ * 测试 API 连接
+ * @param {string} apiKey
+ * @param {string} model
+ * @returns {Promise<boolean>}
  */
 async function testApiConnection(apiKey, model) {
     try {
-        const testPrompt = "Generate a simple test image";
-        
+        const testPrompt = 'Generate a simple test image';
+
         const response = await fetch(
-            `${API_CONFIG.BASE_URL}/models/${model}${API_CONFIG.GENERATE_CONTENT_SUFFIX}`,
+            `${API_CONFIG.GEMINI_BASE_URL}/models/${model}${API_CONFIG.GEMINI_GENERATE_SUFFIX}`,
             {
                 method: 'POST',
                 headers: {
@@ -275,10 +448,11 @@ async function testApiConnection(apiKey, model) {
                 signal: AbortSignal.timeout(10000)
             }
         );
-        
+
         return response.ok;
     } catch (error) {
         console.error('API连接测试失败:', error);
         return false;
     }
 }
+
