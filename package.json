@@ -1,6 +1,6 @@
 {
   "name": "nano-banana-app",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "基于 Gemini 2.5 Flash Image 的双图合成工具",
   "main": "electron-main.js",
   "homepage": "./",
@@ -10,6 +10,7 @@
     "electron-dev": "NODE_ENV=development electron .",
     "build": "electron-builder",
     "build-win": "electron-builder --win",
+    "build-mac": "electron-builder --mac",
     "dist": "npm run build"
   },
   "keywords": ["gemini", "image", "ai", "generator", "electron"],
@@ -46,6 +47,16 @@
         }
       ],
       "icon": "icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "category": "public.app-category.graphics-design",
+      "icon": "icon.icns"
     },
     "nsis": {
       "oneClick": false,
