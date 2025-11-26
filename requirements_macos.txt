@@ -11,3 +11,6 @@ blinker==1.6.3
 
 # macOS 打包工具
 pyinstaller==6.15.0
+
+# HTTP 客户端（用于 /api/proxy 转发）
+requests==2.32.5

@@ -12,7 +12,7 @@ on:
 
 jobs:
   test-macos-build:
-    runs-on: macos-13  # Use specific version to avoid migration warnings
+    runs-on: macos-15  # Use current macOS runner
     
     steps:
     - name: Checkout code
