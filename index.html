@@ -74,6 +74,11 @@
                 <h3>🔧 API配置</h3>
                 <div class="config-container">
                     <div class="config-row">
+                        <label for="apiBaseUrl">API域名:</label>
+                        <input type="text" id="apiBaseUrl" placeholder="https://api.linkapi.org" class="config-input">
+                    </div>
+                    
+                    <div class="config-row">
                         <label for="apiKey">API Key:</label>
                         <input type="password" id="apiKey" placeholder="输入Gemini API Key" class="config-input">
                     </div>
@@ -81,6 +86,7 @@
                     <div class="config-row">
                         <label for="modelSelect">模型:</label>
                         <select id="modelSelect" class="config-select">
+                            <option value="nano-banana-2-4k">nano-banana-2-4k</option>
                             <option value="gemini-2.5-flash-image-preview">gemini-2.5-flash-image-preview</option>
                             <option value="gemini-2.0-flash">gemini-2.0-flash</option>
                         </select>

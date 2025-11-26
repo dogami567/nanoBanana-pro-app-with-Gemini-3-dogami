@@ -5,8 +5,8 @@
 
 // API 配置常量
 const API_CONFIG = {
-    GEMINI_BASE_URL: 'https://api.linkapi.org/v1beta',
-    MODELS_ENDPOINT: '/models',
+    DEFAULT_BASE_URL: 'https://api.linkapi.org',
+    MODELS_ENDPOINT: '/v1beta/models',
     GEMINI_GENERATE_SUFFIX: ':generateContent',
     TIMEOUT: 120000, // 2 分钟超时
     DEFAULT_MODELS: [
@@ -17,6 +17,25 @@ const API_CONFIG = {
         'gemini-1.5-pro'
     ]
 };
+
+/**
+ * 规范化 Base URL，确保为 Origin（去掉 /v1beta 等路径，去掉末尾斜杠）
+ * @param {string} baseUrl
+ * @returns {string}
+ */
+function normalizeBaseUrl(baseUrl) {
+    let url = (baseUrl || API_CONFIG.DEFAULT_BASE_URL || '').trim();
+    if (!url) url = API_CONFIG.DEFAULT_BASE_URL;
+
+    // 去掉末尾斜杠
+    url = url.replace(/\/+$/, '');
+
+    // 去掉尾部的 /v1beta 或 /v1 等路径，得到 Origin
+    url = url.replace(/\/v1beta(?:\/.*)?$/i, '');
+    url = url.replace(/\/v1(?:\/.*)?$/i, '');
+
+    return url;
+}
 
 /**
  * 验证 API 密钥格式
@@ -32,24 +51,25 @@ function validateApiKey(apiKey) {
 /**
  * 获取可用模型列表
  * @param {string} apiKey
+ * @param {string} baseUrl - API 域名（Origin），例如 https://api.linkapi.org
  * @returns {Promise<string[]>}
  */
-async function getAvailableModels(apiKey) {
+async function getAvailableModels(apiKey, baseUrl) {
     if (!validateApiKey(apiKey)) {
         throw new Error('无效的API密钥格式');
     }
 
+    const origin = normalizeBaseUrl(baseUrl);
+    const url = `${origin}${API_CONFIG.MODELS_ENDPOINT}?key=${encodeURIComponent(apiKey)}`;
+
     try {
-        const response = await fetch(
-            `${API_CONFIG.GEMINI_BASE_URL}${API_CONFIG.MODELS_ENDPOINT}?key=${encodeURIComponent(apiKey)}`,
-            {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                signal: AbortSignal.timeout(10000)
-            }
-        );
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            signal: AbortSignal.timeout(10000)
+        });
 
         if (!response.ok) {
             if (response.status === 401) {
@@ -107,9 +127,10 @@ function buildOpenAIContentFromGeminiParts(newParts) {
             if (!prompt) {
                 prompt = part.text;
             }
-        } else if (part.inlineData && part.inlineData.data) {
-            const mimeType = part.inlineData.mimeType || 'image/png';
-            const base64Data = part.inlineData.data;
+        } else if ((part.inlineData && part.inlineData.data) || (part.inline_data && part.inline_data.data)) {
+            const inline = part.inlineData || part.inline_data;
+            const mimeType = inline.mimeType || inline.mime_type || 'image/png';
+            const base64Data = inline.data;
             const dataUrl = `data:${mimeType};base64,${base64Data}`;
 
             contentParts.push({
@@ -140,11 +161,13 @@ function buildOpenAIContentFromGeminiParts(newParts) {
 function extractImageUrlFromText(text) {
     if (!text) return null;
 
+    // 优先匹配 Markdown: ![alt](url)
     const markdownMatch = text.match(/!\[[^\]]*]\((https?:\/\/[^\s)]+)\)/);
     if (markdownMatch && markdownMatch[1]) {
         return markdownMatch[1];
     }
 
+    // 退化为直接 URL 匹配
     const urlMatch = text.match(/https?:\/\/[^\s)]+/);
     return urlMatch ? urlMatch[0] : null;
 }
@@ -190,9 +213,10 @@ async function fetchImageAsBase64(url) {
  * @param {string} params.apiKey
  * @param {Array} params.newParts
  * @param {Function} params.onProgress
+ * @param {string} params.baseUrl
  * @returns {Promise<{text: string, images: Array}>}
  */
-async function callNanoBananaChatCompletions({ apiKey, newParts, onProgress }) {
+async function callNanoBananaChatCompletions({ apiKey, newParts, onProgress, baseUrl }) {
     if (onProgress) onProgress(10, '正在连接 Nano Banana 绘图服务...');
 
     const { contentParts, prompt } = buildOpenAIContentFromGeminiParts(newParts);
@@ -209,7 +233,10 @@ async function callNanoBananaChatCompletions({ apiKey, newParts, onProgress }) {
 
     if (onProgress) onProgress(30, '正在生成图片...');
 
-    const response = await fetch('https://api.linkapi.org/v1/chat/completions', {
+    const origin = normalizeBaseUrl(baseUrl);
+    const url = `${origin}/v1/chat/completions`;
+
+    const response = await fetch(url, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -274,6 +301,7 @@ async function callNanoBananaChatCompletions({ apiKey, newParts, onProgress }) {
  * @param {Array} params.history
  * @param {Array} params.newParts
  * @param {Function} params.onProgress
+ * @param {string} params.baseUrl
  * @returns {Promise<{text: string, images: Array}>}
  */
 async function generateImageWithGemini({
@@ -281,7 +309,8 @@ async function generateImageWithGemini({
     model,
     history = [],
     newParts = [],
-    onProgress
+    onProgress,
+    baseUrl
 }) {
     if (!validateApiKey(apiKey)) {
         throw new Error('无效的API密钥');
@@ -291,10 +320,32 @@ async function generateImageWithGemini({
         throw new Error('输入内容不能为空');
     }
 
+    // 兼容 newParts 中可能存在的 inline_data 形式，统一为 Gemini 所需的 inlineData
+    const normalizedParts = newParts.map(part => {
+        if ((part.inlineData && part.inlineData.data) || (part.inline_data && part.inline_data.data)) {
+            const inline = part.inlineData || part.inline_data;
+            return {
+                inlineData: {
+                    mimeType: inline.mimeType || inline.mime_type || 'image/png',
+                    data: inline.data
+                }
+            };
+        }
+        if (part.text) {
+            return { text: part.text };
+        }
+        return part;
+    });
+
     // 特殊模型：走 OpenAI Chat Completions 协议
     if (model === 'nano-banana-2-4k') {
         try {
-            return await callNanoBananaChatCompletions({ apiKey, newParts, onProgress });
+            return await callNanoBananaChatCompletions({
+                apiKey,
+                newParts: normalizedParts,
+                onProgress,
+                baseUrl
+            });
         } catch (error) {
             console.error('Nano Banana 调用失败:', error);
             throw error;
@@ -307,7 +358,7 @@ async function generateImageWithGemini({
 
     const contents = [
         ...(Array.isArray(history) ? history : []),
-        { role: 'user', parts: newParts }
+        { role: 'user', parts: normalizedParts }
     ];
 
     const requestBody = {
@@ -322,22 +373,22 @@ async function generateImageWithGemini({
 
     if (onProgress) onProgress(20, '发送请求到Gemini API...');
 
+    const origin = normalizeBaseUrl(baseUrl);
+    const url = `${origin}${API_CONFIG.MODELS_ENDPOINT}/${model}${API_CONFIG.GEMINI_GENERATE_SUFFIX}`;
+
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
 
-        const response = await fetch(
-            `${API_CONFIG.GEMINI_BASE_URL}/models/${model}${API_CONFIG.GEMINI_GENERATE_SUFFIX}`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-goog-api-key': apiKey
-                },
-                body: JSON.stringify(requestBody),
-                signal: controller.signal
-            }
-        );
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-goog-api-key': apiKey
+            },
+            body: JSON.stringify(requestBody),
+            signal: controller.signal
+        });
 
         clearTimeout(timeoutId);
 
@@ -421,33 +472,33 @@ async function generateImageWithGemini({
 }
 
 /**
- * 测试 API 连接
+ * 测试 API 连接（使用 Gemini 路径，Base URL 可选）
  * @param {string} apiKey
  * @param {string} model
+ * @param {string} baseUrl
  * @returns {Promise<boolean>}
  */
-async function testApiConnection(apiKey, model) {
+async function testApiConnection(apiKey, model, baseUrl) {
     try {
         const testPrompt = 'Generate a simple test image';
+        const origin = normalizeBaseUrl(baseUrl);
+        const url = `${origin}${API_CONFIG.MODELS_ENDPOINT}/${model}${API_CONFIG.GEMINI_GENERATE_SUFFIX}`;
 
-        const response = await fetch(
-            `${API_CONFIG.GEMINI_BASE_URL}/models/${model}${API_CONFIG.GEMINI_GENERATE_SUFFIX}`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-goog-api-key': apiKey
-                },
-                body: JSON.stringify({
-                    contents: [
-                        {
-                            parts: [{ text: testPrompt }]
-                        }
-                    ]
-                }),
-                signal: AbortSignal.timeout(10000)
-            }
-        );
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-goog-api-key': apiKey
+            },
+            body: JSON.stringify({
+                contents: [
+                    {
+                        parts: [{ text: testPrompt }]
+                    }
+                ]
+            }),
+            signal: AbortSignal.timeout(10000)
+        });
 
         return response.ok;
     } catch (error) {
