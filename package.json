@@ -1,6 +1,6 @@
 {
   "name": "nano-banana-app",
-  "version": "1.1.0",
+  "version": "0.0.3",
   "description": "基于 Gemini 2.5 Flash Image 的双图合成工具",
   "main": "electron-main.js",
   "homepage": "./",
