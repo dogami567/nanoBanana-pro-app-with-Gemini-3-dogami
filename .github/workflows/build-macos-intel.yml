@@ -11,6 +11,9 @@ on:
       - master
   workflow_dispatch:  # 允许手动触发
 
+permissions:
+  contents: write
+
 jobs:
   build-macos-intel:
     # macos-12 目前使用 Intel 架构 runner，用于构建 x86_64 版本
@@ -115,4 +118,3 @@ jobs:
         fail_on_unmatched_files: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
