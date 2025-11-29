@@ -16,8 +16,8 @@ permissions:
 
 jobs:
   build-macos-intel:
-    # macos-12 目前使用 Intel 架构 runner，用于构建 x86_64 版本
-    runs-on: macos-12
+    # macos-13 使用 Intel 架构 runner，用于构建 x86_64 版本
+    runs-on: macos-13
 
     steps:
     - name: Checkout code
