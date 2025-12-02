@@ -11,38 +11,69 @@ permissions:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
+          python-version: '3.11'
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
 
       - name: Build Windows app
-        run: npm run build-win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Current directory: $(Get-Location)"
+          pyinstaller --version
+          pyinstaller --onefile --windowed `
+            --name "Nano-Banana-Windows" `
+            --add-data "index.html;." `
+            --add-data "script.js;." `
+            --add-data "api.js;." `
+            --add-data "utils.js;." `
+            --add-data "styles.css;." `
+            app.py
 
-      - name: List dist directory
-        run: dir dist
+      - name: Verify Windows build
+        run: |
+          Write-Host "Contents of dist directory:"
+          Get-ChildItem -Path dist
+          if (Test-Path "dist/Nano-Banana-Windows.exe") {
+            Write-Host "✅ Windows build complete"
+            $size = (Get-Item "dist/Nano-Banana-Windows.exe").Length / 1MB
+            Write-Host ("Installer size: {0:N1} MB" -f $size)
+          } else {
+            Write-Host "❌ Build failed - executable missing"
+            exit 1
+          }
 
-      - name: Upload installer to Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: dist/*.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload artifacts
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
-          path: dist/*.exe
+          name: nano-banana-windows
+          path: dist/Nano-Banana-Windows.exe
+          retention-days: 30
+
+      - name: Publish Release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Nano-Banana-Windows.exe
+          name: "🍌 Nano Banana ${{ github.ref_name }} - Windows 版本"
+          body: |
+            ## 🪟 Windows 版本发布
+            - 下载 `Nano-Banana-Windows.exe`
+            - 运行安装包并按照提示完成安装
+            - 如遇安全提示请选择“仍要运行”
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
