@@ -116,7 +116,8 @@ def api_proxy():
         headers.pop(h, None)
 
     try:
-        kwargs = {"headers": headers, "timeout": 120}
+        # API 返回可能耗时较长（4K 渲染），将超时提高至 10 分钟
+        kwargs = {"headers": headers, "timeout": 600}
         if method != "GET" and body is not None:
             # 我们的调用都是 JSON
             kwargs["json"] = body

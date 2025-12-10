@@ -8,6 +8,7 @@ const AppState = {
     baseUrl: 'https://api.linkapi.org',
     apiKey: '',
     selectedModel: 'nano-banana-2-4k',
+    imageSize: '',
     isGenerating: false,
     isSidebarOpen: false,
     generationHistory: [],      // 仅存文本和 imageId
@@ -26,6 +27,7 @@ const DOMElements = {
     apiKeyInput: null,
     modelInput: null,
     modelList: null,
+    imageSizeSelect: null,
     promptInput: null,
     generateBtn: null,
     progressSection: null,
@@ -53,6 +55,7 @@ function initializeApp() {
     DOMElements.apiKeyInput = document.getElementById('apiKey');
     DOMElements.modelInput = document.getElementById('modelInput');
     DOMElements.modelList = document.getElementById('modelList');
+    DOMElements.imageSizeSelect = document.getElementById('imageSize');
     DOMElements.promptInput = document.getElementById('promptInput');
     DOMElements.generateBtn = document.getElementById('generateBtn');
 
@@ -92,6 +95,10 @@ function bindEventListeners() {
     if (DOMElements.modelInput) {
         DOMElements.modelInput.addEventListener('input', handleModelChange);
         DOMElements.modelInput.addEventListener('change', handleModelChange);
+    }
+
+    if (DOMElements.imageSizeSelect) {
+        DOMElements.imageSizeSelect.addEventListener('change', handleImageSizeChange);
     }
 
     if (DOMElements.promptInput) {
@@ -141,6 +148,12 @@ function handleModelChange() {
     updateGenerateButtonState();
 }
 
+function handleImageSizeChange() {
+    const value = DOMElements.imageSizeSelect.value;
+    AppState.imageSize = value;
+    localStorage.setItem('gemini-image-size', value || '');
+}
+
 function restoreConfigFromStorage() {
     const savedBaseUrl = localStorage.getItem('gemini-api-base-url');
     if (savedBaseUrl && DOMElements.baseUrlInput) {
@@ -154,6 +167,12 @@ function restoreConfigFromStorage() {
     if (savedApiKey && DOMElements.apiKeyInput) {
         DOMElements.apiKeyInput.value = savedApiKey;
         AppState.apiKey = savedApiKey;
+    }
+
+    const savedImageSize = localStorage.getItem('gemini-image-size');
+    if (DOMElements.imageSizeSelect) {
+        DOMElements.imageSizeSelect.value = savedImageSize || '';
+        AppState.imageSize = savedImageSize || '';
     }
 }
 
@@ -356,7 +375,8 @@ async function generateImage() {
             model: AppState.selectedModel,
             history: AppState.conversationHistory,
             newParts,
-            onProgress: updateProgress
+            onProgress: updateProgress,
+            imageSize: AppState.imageSize
         });
 
         AppState.conversationHistory.push({ role: 'user', parts: newParts });
@@ -623,4 +643,3 @@ function reuseImage(base64, mimeType) {
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', initializeApp);
-

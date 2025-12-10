@@ -1,7 +1,10 @@
-name: Build Multi-Platform Release
+name: Build & Release (All Platforms)
 
 on:
   push:
+    branches:
+      - master
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -10,75 +13,270 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-        include:
-          - os: windows-latest
-            artifact_name: Nano-Banana-Windows.exe
-            build_command: |
-              python -m venv nano_env
-              nano_env\Scripts\activate
-              pip install Flask==2.3.3 pyinstaller
-              pyinstaller --onefile --console --add-data "index.html;." --add-data "script.js;." --add-data "api.js;." --add-data "utils.js;." --add-data "styles.css;." --add-data "CLAUDE.md;." --name "Nano-Banana-Windows" app.py
-          
-          - os: macos-latest
-            artifact_name: Nano-Banana-macOS.app
-            build_command: |
-              python3 -m venv nano_env
-              source nano_env/bin/activate
-              pip install Flask==2.3.3 pyinstaller
-              pyinstaller --onefile --windowed --add-data "index.html:." --add-data "script.js:." --add-data "api.js:." --add-data "utils.js:." --add-data "styles.css:." --add-data "CLAUDE.md:." --name "Nano-Banana-macOS" app.py
-          
-          - os: ubuntu-latest
-            artifact_name: Nano-Banana-Linux
-            build_command: |
-              python3 -m venv nano_env
-              source nano_env/bin/activate
-              pip install Flask==2.3.3 pyinstaller
-              pyinstaller --onefile --console --add-data "index.html:." --add-data "script.js:." --add-data "api.js:." --add-data "utils.js:." --add-data "styles.css:." --add-data "CLAUDE.md:." --name "Nano-Banana-Linux" app.py
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    runs-on: ${{ matrix.os }}
-    
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Windows executable
+        shell: pwsh
+        run: |
+          pyinstaller --version
+          pyinstaller --onefile --windowed `
+            --name "Nano-Banana-Windows" `
+            --add-data "index.html;." `
+            --add-data "script.js;." `
+            --add-data "api.js;." `
+            --add-data "utils.js;." `
+            --add-data "styles.css;." `
+            --add-data "CLAUDE.md;." `
+            app.py
+
+      - name: Verify Windows build
+        shell: pwsh
+        run: |
+          if (Test-Path "dist/Nano-Banana-Windows.exe") {
+            Write-Host "✅ Windows build ready"
+            $size = (Get-Item "dist/Nano-Banana-Windows.exe").Length / 1MB
+            Write-Host ("Size: {0:N1} MB" -f $size)
+          } else {
+            Write-Error "Windows build missing"
+          }
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nano-banana-windows
+          path: dist/Nano-Banana-Windows.exe
+          retention-days: 30
+
+  build-macos-arm:
+    runs-on: macos-15
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-      
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-        
-    - name: Build application
-      shell: bash
-      run: ${{ matrix.build_command }}
-      
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: ${{ matrix.artifact_name }}
-        path: |
-          dist/${{ matrix.artifact_name }}
-          dist/${{ matrix.artifact_name }}/**
-          
-  release:
-    needs: build
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_macos.txt
+          pip install pyinstaller
+
+      - name: Build macOS app (Apple Silicon)
+        run: |
+          echo "Available spec files:"
+          ls -la *.spec || true
+
+          if [ -f "macos-release.spec" ]; then
+            echo "Using macos-release.spec"
+            pyinstaller macos-release.spec
+          else
+            echo "Fallback CLI build"
+            pyinstaller \
+              --onedir \
+              --windowed \
+              --name "Nano-Banana" \
+              --add-data "index.html:." \
+              --add-data "script.js:." \
+              --add-data "api.js:." \
+              --add-data "utils.js:." \
+              --add-data "styles.css:." \
+              --add-data "CLAUDE.md:." \
+              --osx-bundle-identifier "com.nanobanan.app" \
+              app.py
+          fi
+
+      - name: Verify macOS app
+        run: |
+          ls -la dist/
+          if [ -d "dist/Nano-Banana.app" ]; then
+            echo "✅ macOS (arm) build ready"
+            du -sh dist/Nano-Banana.app | cat
+          else
+            echo "App missing"
+            exit 1
+          fi
+
+      - name: Create DMG (arm)
+        run: |
+          hdiutil create -volname "Nano Banana" -srcfolder dist/ -ov -format UDZO "Nano-Banana-macOS.dmg" || true
+          ls -la Nano-Banana-macOS.dmg || true
+
+      - name: Upload macOS (arm) artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nano-banana-macos-arm
+          path: |
+            dist/Nano-Banana.app
+            Nano-Banana-macOS.dmg
+          retention-days: 30
+          if-no-files-found: warn
+
+  build-macos-intel:
+    runs-on: macos-13
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_macos.txt
+          pip install pyinstaller
+
+      - name: Build macOS app (Intel)
+        run: |
+          echo "Available spec files:"
+          ls -la *.spec || true
+
+          if [ -f "macos-release.spec" ]; then
+            echo "Using macos-release.spec (Intel)"
+            pyinstaller macos-release.spec
+          else
+            echo "Fallback CLI build"
+            pyinstaller \
+              --onedir \
+              --windowed \
+              --name "Nano-Banana" \
+              --add-data "index.html:." \
+              --add-data "script.js:." \
+              --add-data "api.js:." \
+              --add-data "utils.js:." \
+              --add-data "styles.css:." \
+              --add-data "CLAUDE.md:." \
+              --osx-bundle-identifier "com.nanobanan.app" \
+              app.py
+          fi
+
+      - name: Verify macOS Intel app
+        run: |
+          ls -la dist/
+          if [ -d "dist/Nano-Banana.app" ]; then
+            echo "✅ macOS (Intel) build ready"
+            du -sh dist/Nano-Banana.app | cat
+            file "dist/Nano-Banana.app/Contents/MacOS/Nano-Banana" || true
+          else
+            echo "App missing"
+            exit 1
+          fi
+
+      - name: Create DMG (Intel)
+        run: |
+          hdiutil create -volname "Nano Banana Intel" -srcfolder dist/ -ov -format UDZO "Nano-Banana-macOS-Intel.dmg" || true
+          ls -la Nano-Banana-macOS-Intel.dmg || true
+
+      - name: Upload macOS Intel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nano-banana-macos-intel
+          path: |
+            dist/Nano-Banana.app
+            Nano-Banana-macOS-Intel.dmg
+          retention-days: 30
+          if-no-files-found: warn
+
+  build-linux:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v3
-      
-    - name: Create Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: |
-          **/Nano-Banana-Windows.exe
-          **/Nano-Banana-macOS.app
-          **/Nano-Banana-Linux
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Linux binary
+        run: |
+          pyinstaller --onefile --console \
+            --name "Nano-Banana-Linux" \
+            --add-data "index.html:." \
+            --add-data "script.js:." \
+            --add-data "api.js:." \
+            --add-data "utils.js:." \
+            --add-data "styles.css:." \
+            --add-data "CLAUDE.md:." \
+            app.py
+
+      - name: Verify Linux build
+        run: |
+          if [ -f "dist/Nano-Banana-Linux" ]; then
+            echo "✅ Linux build ready"
+            ls -lh dist/Nano-Banana-Linux
+          else
+            echo "Linux build missing"
+            exit 1
+          fi
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nano-banana-linux
+          path: dist/Nano-Banana-Linux
+          retention-days: 30
+
+  release:
+    needs:
+      - build-windows
+      - build-macos-arm
+      - build-macos-intel
+      - build-linux
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded files
+        run: find artifacts -maxdepth 3 -type f -print
+
+      - name: Publish Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/Nano-Banana-Windows.exe
+            artifacts/**/Nano-Banana-macOS.dmg
+            artifacts/**/Nano-Banana-macOS-Intel.dmg
+            artifacts/**/Nano-Banana-Linux
+          name: "Nano Banana ${{ github.ref_name }}"
+          body: |
+            ## Nano Banana ${{ github.ref_name }}
+            - Windows: Nano-Banana-Windows.exe
+            - macOS (Apple Silicon): Nano-Banana-macOS.dmg
+            - macOS (Intel): Nano-Banana-macOS-Intel.dmg
+            - Linux: Nano-Banana-Linux
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

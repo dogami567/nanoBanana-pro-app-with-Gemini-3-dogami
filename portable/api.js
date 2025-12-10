@@ -8,7 +8,7 @@ const API_CONFIG = {
     BASE_URL: 'https://generativelanguage.googleapis.com/v1beta',
     MODELS_ENDPOINT: '/models',
     GENERATE_CONTENT_SUFFIX: ':generateContent',
-    TIMEOUT: 120000, // 2分钟超时
+    TIMEOUT: 600000, // 10分钟超时
     DEFAULT_MODELS: [
         'gemini-2.5-flash-image-preview',
         'gemini-2.0-flash',

@@ -8,7 +8,7 @@ const API_CONFIG = {
     DEFAULT_BASE_URL: 'https://api.linkapi.org',
     MODELS_ENDPOINT: '/v1beta/models',
     GEMINI_GENERATE_SUFFIX: ':generateContent',
-    TIMEOUT: 120000,
+    TIMEOUT: 600000, // 10分钟超时，满足大尺寸图生成
     DEFAULT_MODELS: [
         'nano-banana-2-4k',
         'gemini-2.5-flash-image-preview',
@@ -276,7 +276,8 @@ async function generateImageWithGemini({
     history = [],
     newParts = [],
     onProgress,
-    baseUrl
+    baseUrl,
+    imageSize = ''
 }) {
     if (!validateApiKey(apiKey)) {
         throw new Error('无效的API密钥');
@@ -318,14 +319,21 @@ async function generateImageWithGemini({
         { role: 'user', parts: normalizedParts }
     ];
 
+    const generationConfig = {
+        temperature: 0.8,
+        topK: 32,
+        topP: 1,
+        maxOutputTokens: 4096
+    };
+
+    const isGeminiModel = typeof model === 'string' && model.toLowerCase().includes('gemini');
+    if (isGeminiModel && imageSize) {
+        generationConfig.imageConfig = { imageSize };
+    }
+
     const requestBody = {
         contents,
-        generationConfig: {
-            temperature: 0.8,
-            topK: 32,
-            topP: 1,
-            maxOutputTokens: 4096
-        }
+        generationConfig
     };
 
     if (onProgress) onProgress(20, '发送请求到Gemini API...');
@@ -464,4 +472,3 @@ async function testApiConnection(apiKey, model, baseUrl) {
         return false;
     }
 }
-
