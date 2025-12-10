@@ -98,5 +98,11 @@ python app.py
 
 ---
 
+## 🔔 本次更新
+
+- 新增 Gemini 图像分辨率下拉（1K/2K/4K），`imageSize` 透传官方 `imageConfig`，默认跟随模型。
+- 代理超时统一到 10 分钟，适配 4K / 大图耗时场景。
+- CI 合并为单一 `Build & Release (All Platforms)`，覆盖 Win / macOS (ARM/Intel) / Linux，并将 macOS Intel 切换到 `macos-15-intel` 以避免 runner 退役导致的取消。
+
 如果 Nano Banana Pro 对你有帮助，欢迎在 GitHub 上点一颗 ⭐ Star 支持一下！
 *** End Patch***} ***!
