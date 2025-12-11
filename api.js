@@ -398,12 +398,30 @@ async function generateImageWithGemini({
             throw new Error('API未返回任何结果');
         }
 
-        const candidate = result.candidates[0];
-        if (!candidate.content || !candidate.content.parts) {
-            throw new Error('API返回了空内容');
+        // 尽量从任意候选里找到有效 parts，避免因安全拦截/空 payload 直接失败
+        const candidateWithParts = result.candidates.find(
+            c => c.content && Array.isArray(c.content.parts) && c.content.parts.length > 0
+        );
+
+        if (!candidateWithParts) {
+            const errs = [];
+            const first = result.candidates[0] || {};
+            const blockReason = result.promptFeedback && result.promptFeedback.blockReason;
+            if (blockReason) errs.push(`提示被拦截(${blockReason})`);
+            const safety = result.promptFeedback && result.promptFeedback.safetyRatings;
+            if (Array.isArray(safety) && safety.length) {
+                const blocked = safety
+                    .filter(r => r.probability || r.probabilityScore)
+                    .map(r => r.category || '')
+                    .filter(Boolean)
+                    .join(',');
+                if (blocked) errs.push(`安全策略: ${blocked}`);
+            }
+            if (first.finishReason) errs.push(`finishReason: ${first.finishReason}`);
+            throw new Error(errs.length ? `API返回了空内容（${errs.join(' / ')}）` : 'API返回了空内容');
         }
 
-        const responseParts = candidate.content.parts;
+        const responseParts = candidateWithParts.content.parts;
         let textContent = '';
         const images = [];
 
